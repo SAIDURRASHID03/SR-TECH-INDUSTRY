@@ -113,6 +113,35 @@ def collect(source, strict):
     return [], f"unknown source: {source}"
 
 
+def dedupe_existing(db_url, id_token):
+    """Delete duplicate srcIds from Firebase, keeping the oldest entry.
+    Runs at the start of every live run — self-heals duplicates left by
+    overlapping runs. Manual items (no srcId) are never touched.
+    Returns the number deleted."""
+    data = store.read_existing(db_url, id_token)
+    by_src = {}
+    for key, v in (data or {}).items():
+        if not isinstance(v, dict):
+            continue
+        sid = v.get("srcId")
+        if not sid:
+            continue
+        by_src.setdefault(str(sid), []).append(key)
+    deleted = 0
+    for sid, keys in sorted(by_src.items()):
+        if len(keys) > 1:
+            keys.sort()  # Firebase push keys are time-ordered: keep oldest
+            for k in keys[1:]:
+                try:
+                    store.delete(db_url, id_token, k)
+                    deleted += 1
+                except Exception as ex:
+                    print(f"[dedupe] failed to delete {k}: {ex}", file=sys.stderr)
+    if deleted:
+        print(f"[dedupe] removed {deleted} duplicate item(s)", file=sys.stderr)
+    return deleted
+
+
 def existing_src_ids(dry_run):
     """Set of srcIds already in Firebase. Skipped in dry-run (no credentials)."""
     if dry_run:
@@ -162,6 +191,8 @@ def main():
     if not args.dry_run:
         id_token = store.signin()  # raises with API message on failure
         db_url = os.environ["FIREBASE_DB_URL"]
+        # Self-heal: remove duplicates left by any earlier overlapping runs.
+        dedupe_existing(db_url, id_token)
     else:
         id_token = db_url = None
 
