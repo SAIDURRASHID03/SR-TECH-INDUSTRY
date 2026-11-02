@@ -24,7 +24,7 @@ import requests
 
 UA = {"User-Agent": "SRTechIndustryDealBot/1.0 (+https://srtechindustry03.blogspot.com)"}
 SEARCH_URL = "https://store.steampowered.com/search/results/"
-FEATURED_URL = "https://store.steampowered.com/api/featuredcategories/?cc=US&l=en"
+FEATURED_URL = "https://store.steampowered.com/api/featuredcategories/?cc=BD&l=en"
 PAGES = 5
 PER_PAGE = 50
 
@@ -81,7 +81,7 @@ def _from_search():
         for page in range(pages):
             params = {
                 "query": "", "start": page * PER_PAGE, "count": PER_PAGE,
-                "dynamic_data": "", "infinite": 1, "cc": "US", "l": "en",
+                "dynamic_data": "", "infinite": 1, "cc": "BD", "l": "en",
                 "category1": "998",  # games only — no DLCs/soundtracks/bundles
             }
             params.update(extra)
@@ -122,7 +122,7 @@ def _verify_free(appid):
     try:
         r = requests.get(
             "https://store.steampowered.com/api/appdetails/",
-            params={"appids": appid, "cc": "US", "l": "en"},
+            params={"appids": appid, "cc": "BD", "l": "en"},
             headers=UA, timeout=15)
         d = r.json().get(str(appid), {})
         if not d.get("success"):

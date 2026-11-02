@@ -199,12 +199,10 @@ def verify_steam_listings(db_url, id_token, seen_sids, now_ms):
             continue
         if str(v["srcId"]) in seen_sids:
             continue  # re-collected -> already synced
-        if (v.get("ts") or 0) > now_ms - 3 * 3600 * 1000:
-            continue  # verified recently
         appid = str(v["srcId"]).split(":", 1)[1]
         try:
             r = _rq.get("https://store.steampowered.com/api/appdetails/",
-                        params={"appids": appid, "cc": "US", "l": "en"},
+                        params={"appids": appid, "cc": "BD", "l": "en"},
                         timeout=15)
             d = r.json().get(appid, {})
             if not d.get("success"):

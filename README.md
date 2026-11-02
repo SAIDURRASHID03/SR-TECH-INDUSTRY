@@ -49,9 +49,14 @@ goes live on its own.
 
 ## Section rules
 
-- **Weekly Discounts**: at most 50 games; anything with a sale price over **$30** is skipped. Order: watchlist games pinned first, then most player reviews, then biggest discount % (theme v49).
+- **Weekly Discounts**: always 40–50 games *total* — anything with a sale price over **$30** is skipped, and every run trims the section back to the 50 best (excess deleted automatically). Order: watchlist games pinned first, then most player reviews, then biggest discount % (theme v49).
 - **Long-Term Free**: at most 30 games.
 - **Priority watchlist** (`watchlist.py`): GTA V, Red Dead Redemption 2, Cyberpunk 2077, Watch Dogs: Legion, Watch Dogs 2, Tomb Raider, The Forest, Fallout 4, Days Gone, Green Hell, Gold Rush. When one goes on sale (Epic or Steam) it is pinned to the **top** of Weekly Discounts; the rest of the section sorts by biggest discount % first (theme v48).
+
+## Self-healing
+
+- The workflow can never run twice at the same time (GitHub `concurrency` queues extra runs).
+- Every live run starts by deleting duplicate entries (same dedup key), keeping the oldest — so even if duplicates ever appear, the next run cleans them up by itself.
 
 ## Approving drafts
 Drafts from Giveaway of the Day / WinningPC appear in your data but are marked

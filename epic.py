@@ -19,7 +19,7 @@ import requests
 
 EPIC_URL = (
     "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions"
-    "?locale=en-US&country=US"
+    "?locale=en-US&country=BD"
 )
 
 UA = {"User-Agent": "SRTechIndustryDealBot/1.0 (+https://srtechindustry03.blogspot.com)"}
