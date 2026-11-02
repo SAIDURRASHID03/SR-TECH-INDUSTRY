@@ -2,13 +2,16 @@ name: deals-bot
 
 on:
   schedule:
-    # 11:00 and 23:00 Dhaka time (05:00 / 17:00 UTC)
-    - cron: '0 5,17 * * *'
+    # Every 6 hours: 11:00, 17:00, 23:00 and 05:00 Dhaka time (05, 11, 17, 23 UTC)
+    - cron: '0 5,11,17,23 * * *'
   workflow_dispatch:  # allow manual runs from the Actions tab
 
 jobs:
   collect:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deal-bot
     steps:
       - uses: actions/checkout@v4
 
