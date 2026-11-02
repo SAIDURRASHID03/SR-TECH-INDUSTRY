@@ -191,7 +191,7 @@ def existing_src_ids(dry_run):
     ids = {}
     for key, v in (data or {}).items():
         if isinstance(v, dict) and v.get("srcId"):
-            ids[str(v["srcId"])] = (key, v.get("expiresAt"))
+            ids[str(v["srcId"])] = (key, v)
     return ids
 
 
@@ -228,71 +228,15 @@ def main():
 
     seen = existing_src_ids(args.dry_run)
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    new_items, refreshed = [], 0
+    # Volatile fields refreshed on every run so prices/ratings never go stale.
+    # status/sub/img/images/desc/url are NEVER touched here (drafts stay drafts,
+    # manual items have no srcId and are invisible to this loop).
+    SYNC_FIELDS = ("price", "sale", "reviews", "pinned", "expiresAt", "title")
+    new_items, refreshed, synced = [], 0, 0
     for i in all_items:
         sid = str(i["srcId"])
         if sid not in seen:
             new_items.append(i)
             continue
         # Self-correct: stored record expired but the deal is live again
-        # (e.g. a wrong/old expiry) -> delete the stale record, push fresh.
-        key, exp = seen[sid]
-        new_exp = i.get("expiresAt")
-        if exp and exp <= now_ms and (not new_exp or new_exp > now_ms):
-            if not args.dry_run:
-                try:
-                    store.delete(os.environ["FIREBASE_DB_URL"], id_token, key)
-                except Exception as ex:
-                    print(f"[refresh] delete failed for {sid}: {ex}", file=sys.stderr)
-                    continue
-            refreshed += 1
-            print(f"[refresh] {i['title'][:50]}: stale expired record replaced", file=sys.stderr)
-            new_items.append(i)
-    dupes = len(all_items) - len(new_items) - refreshed
-
-    # Watchlist pinning + his section limits (caps, $30 price cap).
-    new_items = watchlist.apply(new_items)
-    new_items = enforce_limits(new_items)
-
-    # Self-heal: remove duplicates left by any earlier overlapping runs.
-    if not args.dry_run:
-        dedupe_existing(db_url, id_token)
-
-    pushed_live = pushed_draft = 0
-    for it in new_items:
-        if not args.dry_run:
-            final_img = images.upload(it["img"])
-            it["img"] = final_img
-            it["images"] = [final_img] if final_img else []
-            key = store.push(db_url, id_token, it)
-            print(f"[push] {it['src']}/{it['status']}: {it['title'][:60]} -> {key}", file=sys.stderr)
-        if it["status"] == "live":
-            pushed_live += 1
-        else:
-            pushed_draft += 1
-
-    if not args.dry_run:
-        trim_discounts(db_url, id_token, int(datetime.now(timezone.utc).timestamp() * 1000))
-
-    if args.dry_run:
-        print(json.dumps(new_items, indent=2, ensure_ascii=False))
-
-    print("=" * 60, file=sys.stderr)
-    print(f"SUMMARY  mode={'dry-run' if args.dry_run else 'LIVE'}", file=sys.stderr)
-    print(f"  new live items (auto-publish): {sum(1 for i in new_items if i['status'] == 'live')}", file=sys.stderr)
-    print(f"    - epic free games: {sum(1 for i in new_items if i['src'] == 'epic' and i['sub'] == 'games')}", file=sys.stderr)
-    print(f"    - epic on-sale games: {sum(1 for i in new_items if i['src'] == 'epic' and i['sub'] == 'discount')}", file=sys.stderr)
-    print(f"    - fab free assets: {sum(1 for i in new_items if i['src'] == 'fab')}", file=sys.stderr)
-    print(f"    - free-to-play games: {sum(1 for i in new_items if i['src'] == 'f2p')}", file=sys.stderr)
-    print(f"    - steam discounts: {sum(1 for i in new_items if i['src'] == 'steam')}", file=sys.stderr)
-    print(f"    - pinned watchlist games: {sum(1 for i in new_items if i.get('pinned'))}", file=sys.stderr)
-    print(f"  new scraped drafts (need approval): {sum(1 for i in new_items if i['status'] == 'draft')}", file=sys.stderr)
-    print(f"  skipped as duplicates: {dupes}", file=sys.stderr)
-    for s, e in errors.items():
-        print(f"  ERROR [{s}]: {e}", file=sys.stderr)
-    if errors and args.strict:
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+        # (e.g. a wrong
