@@ -142,16 +142,55 @@ def dedupe_existing(db_url, id_token):
     return deleted
 
 
+def trim_discounts(db_url, id_token, now_ms):
+    """Keep the live Weekly Discounts section at MAX_DISCOUNTS items total.
+    New items are capped per run, but different games arrive each run — so
+    without this the section would grow without bound until items expire.
+    Keeps the best-ranked (pinned, reviews, discount %) and deletes the rest.
+    Manual items (no srcId) are never touched. Returns the number deleted."""
+    data = store.read_existing(db_url, id_token)
+    live = []
+    for key, v in (data or {}).items():
+        if not isinstance(v, dict):
+            continue
+        if v.get("sub") != "discount" or v.get("status") != "live":
+            continue
+        if not v.get("srcId"):  # manual item — never auto-delete
+            continue
+        exp = v.get("expiresAt")
+        if exp and exp <= now_ms:
+            continue
+        live.append((key, v))
+    if len(live) <= MAX_DISCOUNTS:
+        return 0
+    live.sort(key=lambda kv: (kv[1].get("pinned") or 0,
+                              kv[1].get("reviews") or 0,
+                              _discount_pct(kv[1])), reverse=True)
+    doomed = live[MAX_DISCOUNTS:]
+    deleted = 0
+    for key, v in doomed:
+        try:
+            store.delete(db_url, id_token, key)
+            deleted += 1
+        except Exception as ex:
+            print(f"[trim] failed to delete {key}: {ex}", file=sys.stderr)
+    if deleted:
+        print(f"[trim] Weekly Discounts: {len(live)} -> {MAX_DISCOUNTS} (removed {deleted})",
+              file=sys.stderr)
+    return deleted
+
+
 def existing_src_ids(dry_run):
-    """Set of srcIds already in Firebase. Skipped in dry-run (no credentials)."""
+    """{srcId: (firebase_key, expiresAt)} already in Firebase.
+    Skipped in dry-run (no credentials)."""
     if dry_run:
         print("[dedup] dry-run: skipping Firebase read (no dedup against live data)", file=sys.stderr)
-        return set()
+        return {}
     data = store.read_existing(os.environ.get("FIREBASE_DB_URL", ""))
-    ids = set()
-    for v in (data or {}).values():
+    ids = {}
+    for key, v in (data or {}).items():
         if isinstance(v, dict) and v.get("srcId"):
-            ids.add(str(v["srcId"]))
+            ids[str(v["srcId"])] = (key, v.get("expiresAt"))
     return ids
 
 
@@ -180,21 +219,43 @@ def main():
             errors[s] = err
         print(f"[{s}] collected {len(items)} item(s)", file=sys.stderr)
 
+    if not args.dry_run:
+        id_token = store.signin()  # raises with API message on failure
+        db_url = os.environ["FIREBASE_DB_URL"]
+    else:
+        id_token = db_url = None
+
     seen = existing_src_ids(args.dry_run)
-    new_items = [i for i in all_items if str(i["srcId"]) not in seen]
-    dupes = len(all_items) - len(new_items)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    new_items, refreshed = [], 0
+    for i in all_items:
+        sid = str(i["srcId"])
+        if sid not in seen:
+            new_items.append(i)
+            continue
+        # Self-correct: stored record expired but the deal is live again
+        # (e.g. a wrong/old expiry) -> delete the stale record, push fresh.
+        key, exp = seen[sid]
+        new_exp = i.get("expiresAt")
+        if exp and exp <= now_ms and (not new_exp or new_exp > now_ms):
+            if not args.dry_run:
+                try:
+                    store.delete(os.environ["FIREBASE_DB_URL"], id_token, key)
+                except Exception as ex:
+                    print(f"[refresh] delete failed for {sid}: {ex}", file=sys.stderr)
+                    continue
+            refreshed += 1
+            print(f"[refresh] {i['title'][:50]}: stale expired record replaced", file=sys.stderr)
+            new_items.append(i)
+    dupes = len(all_items) - len(new_items) - refreshed
 
     # Watchlist pinning + his section limits (caps, $30 price cap).
     new_items = watchlist.apply(new_items)
     new_items = enforce_limits(new_items)
 
+    # Self-heal: remove duplicates left by any earlier overlapping runs.
     if not args.dry_run:
-        id_token = store.signin()  # raises with API message on failure
-        db_url = os.environ["FIREBASE_DB_URL"]
-        # Self-heal: remove duplicates left by any earlier overlapping runs.
         dedupe_existing(db_url, id_token)
-    else:
-        id_token = db_url = None
 
     pushed_live = pushed_draft = 0
     for it in new_items:
@@ -208,6 +269,9 @@ def main():
             pushed_live += 1
         else:
             pushed_draft += 1
+
+    if not args.dry_run:
+        trim_discounts(db_url, id_token, int(datetime.now(timezone.utc).timestamp() * 1000))
 
     if args.dry_run:
         print(json.dumps(new_items, indent=2, ensure_ascii=False))
