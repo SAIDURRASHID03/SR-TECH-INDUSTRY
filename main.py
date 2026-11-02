@@ -6,12 +6,15 @@ CONTRACT — every deal item is a dict with exactly these keys:
     url:str              source claim page
     img:str              Cloudinary URL after upload (images[0])
     images:list          [img]
-    sub:str              'games' (Epic / weekly free games) or 'daily' (software giveaways)
+    sub:str              'games' (Epic free games) | 'discount' (Epic on-sale + WinningPC coupons)
+                         'daily' (software giveaways) | 'preset' (Fab free 3D assets)
     price:str            NUMBERS ONLY, e.g. "24.99" (site v44 adds the $ at display)
+    sale:str             NUMBERS ONLY sale price, e.g. "3.99"; "" when not on sale
+                         (site shows $3.99 struck $24.99 instead of "Free")
     expiresAt:int        epoch ms
-    src:str              'epic' | 'gotd' | 'winningpc'
-    srcId:str            stable dedup key (Epic id / source URL)
-    status:str           'live' (Epic auto-publish) | 'draft' (scraped, needs human approval)
+    src:str              'epic' | 'fab' | 'gotd' | 'winningpc'
+    srcId:str            stable dedup key (Epic id / Fab uid / source URL)
+    status:str           'live' (Epic + Fab auto-publish) | 'draft' (scraped, needs human approval)
     ts:int               collection time, epoch ms
 
 Usage:
@@ -28,11 +31,13 @@ import os
 import sys
 
 import epic
+import fab
+import f2p
 import images
 import scrapers
 import store
 
-SOURCES = ("epic", "gotd", "winningpc")
+SOURCES = ("epic", "fab", "f2p", "gotd", "winningpc")
 
 
 def collect(source, strict):
@@ -40,6 +45,10 @@ def collect(source, strict):
     try:
         if source == "epic":
             return epic.fetch(), None
+        if source == "fab":
+            return fab.fetch(), None
+        if source == "f2p":
+            return f2p.fetch(), None
         if source == "gotd":
             return scrapers.gotd(), None
         if source == "winningpc":
@@ -70,14 +79,16 @@ def main():
     ap = argparse.ArgumentParser(description="SR Tech Industry deal-bot")
     ap.add_argument("--dry-run", action="store_true",
                     help="collect and print only; no Cloudinary uploads, no Firebase writes")
-    ap.add_argument("--source", choices=("epic", "scraped", "all"), default="all",
-                    help="'scraped' = gotd + winningpc")
+    ap.add_argument("--source", choices=("epic", "fab", "f2p", "scraped", "all"), default="all",
+                    help="'scraped' = gotd + winningpc (drafts only)")
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 if any source fails (default: log and continue)")
     args = ap.parse_args()
 
     wanted = list(SOURCES) if args.source == "all" else (
-        ["epic"] if args.source == "epic" else ["gotd", "winningpc"]
+        ["epic"] if args.source == "epic" else (
+        ["fab"] if args.source == "fab" else (
+        ["f2p"] if args.source == "f2p" else ["gotd", "winningpc"]))
     )
 
     all_items, errors = [], {}
@@ -116,8 +127,12 @@ def main():
 
     print("=" * 60, file=sys.stderr)
     print(f"SUMMARY  mode={'dry-run' if args.dry_run else 'LIVE'}", file=sys.stderr)
-    print(f"  new epic items (auto-publish/live): {sum(1 for i in new_items if i['src'] == 'epic')}", file=sys.stderr)
-    print(f"  new scraped drafts (need approval): {sum(1 for i in new_items if i['src'] != 'epic')}", file=sys.stderr)
+    print(f"  new live items (auto-publish): {sum(1 for i in new_items if i['status'] == 'live')}", file=sys.stderr)
+    print(f"    - epic free games: {sum(1 for i in new_items if i['src'] == 'epic' and i['sub'] == 'games')}", file=sys.stderr)
+    print(f"    - epic on-sale games: {sum(1 for i in new_items if i['src'] == 'epic' and i['sub'] == 'discount')}", file=sys.stderr)
+    print(f"    - fab free assets: {sum(1 for i in new_items if i['src'] == 'fab')}", file=sys.stderr)
+    print(f"    - free-to-play games: {sum(1 for i in new_items if i['src'] == 'f2p')}", file=sys.stderr)
+    print(f"  new scraped drafts (need approval): {sum(1 for i in new_items if i['status'] == 'draft')}", file=sys.stderr)
     print(f"  skipped as duplicates: {dupes}", file=sys.stderr)
     for s, e in errors.items():
         print(f"  ERROR [{s}]: {e}", file=sys.stderr)
