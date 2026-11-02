@@ -10,8 +10,8 @@ website's Daily Deals section. Runs by itself 4 times a day (every 6 hours) — 
 | **Epic Games** | Weekly free games (title, image, original price, exact end date) → your **Weekly Free Games** section. **Only truly free games** (the bot verifies the price is $0 — discounted-but-not-free games never sneak in) | ✅ Goes live automatically — the data comes from Epic's own feed, so it's trustworthy |
 | **Epic Games** | Games currently on sale (sale price + original price, exact end date) → your **Weekly Discounts** section | ✅ Goes live automatically |
 | **Fab** (Epic's 3D marketplace) | Limited-time free 3D assets → your **Presets** section | ✅ Goes live automatically |
-| **Free-to-play** | 14 verified permanently-free Epic games (Fortnite, Rocket League, …) → your **Long-Term Free** section. The bot re-checks each game's real store page every run | ✅ Goes live automatically |
-| **Steam** | This week's discounted games (sale price + original price) → your **Weekly Discounts** section, next to the Epic deals | ✅ Goes live automatically |
+| **Free-to-play** | 30 verified permanently-free Epic games (Fortnite, Apex Legends, Marvel Rivals, PUBG, …) → your **Long-Term Free** section. Each game's page is re-checked every run when reachable; a verified snapshot guarantees the list never comes back empty | ✅ Goes live automatically |
+| **Steam** | Up to 50 discounted games from two pools — top-selling discounted games (the popular titles) + cheapest-first specials — with player review counts, → your **Weekly Discounts** section, next to the Epic deals. Rare $0.00 Steam freebies go to Weekly Free Games | ✅ Goes live automatically |
 | **Giveaway of the Day** | Today's free software → your **Daily Free Software** section | 📝 Saved as a **draft** — you approve it with one tap in your admin panel |
 | **WinningPC** | Latest giveaway posts → **Daily Free Software**; coupon/discount posts → your **Weekly Discounts** section | 📝 Saved as a **draft** — you approve it with one tap in your admin panel |
 
@@ -46,6 +46,12 @@ goes live on its own.
 1. In your repo, click the **Actions** tab → enable workflows if asked.
 2. Done! It runs automatically at **11:00 AM and 11:00 PM Dhaka time**.
 3. To run it right now: **Actions → deals-bot → Run workflow**.
+
+## Section rules
+
+- **Weekly Discounts**: at most 50 games; anything with a sale price over **$30** is skipped. Order: watchlist games pinned first, then most player reviews, then biggest discount % (theme v49).
+- **Long-Term Free**: at most 30 games.
+- **Priority watchlist** (`watchlist.py`): GTA V, Red Dead Redemption 2, Cyberpunk 2077, Watch Dogs: Legion, Watch Dogs 2, Tomb Raider, The Forest, Fallout 4, Days Gone, Green Hell, Gold Rush. When one goes on sale (Epic or Steam) it is pinned to the **top** of Weekly Discounts; the rest of the section sorts by biggest discount % first (theme v48).
 
 ## Approving drafts
 Drafts from Giveaway of the Day / WinningPC appear in your data but are marked

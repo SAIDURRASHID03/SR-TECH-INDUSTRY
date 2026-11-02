@@ -37,8 +37,56 @@ import images
 import scrapers
 import steam
 import store
+import watchlist
 
 SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc")
+
+# Section limits (his rules): Weekly Discounts holds at most 50 live games,
+# Long-Term Free at most 30, and no discounted game may cost more than $30.
+MAX_DISCOUNTS = 50
+MAX_LONGTERM = 30
+PRICE_CAP_USD = 30.0
+
+
+def _fnum(v):
+    try:
+        return float(str(v).replace("$", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _discount_pct(it):
+    p, s = _fnum(it.get("price")), _fnum(it.get("sale"))
+    if p and p > 0 and s is not None and 0 <= s < p:
+        return (p - s) / p
+    return 0.0
+
+
+def enforce_limits(items):
+    """Apply his section rules to the NEW items about to be pushed.
+    Discounts: drop anything over the $30 price cap, then keep the top 50 by
+    (watchlist-pinned first, most player reviews, biggest discount %).
+    Long-Term Free: keep at most 30. Returns the trimmed list."""
+    discounts = [i for i in items if i.get("sub") == "discount"]
+    longterm = [i for i in items if i.get("sub") == "longterm"]
+    rest = [i for i in items if i.get("sub") not in ("discount", "longterm")]
+
+    kept_d, dropped_price = [], 0
+    for i in discounts:
+        s = _fnum(i.get("sale"))
+        if s is not None and s > PRICE_CAP_USD:
+            dropped_price += 1
+            print(f"[limits] price-cap drop: {i['title'][:50]} (${s:.2f})", file=sys.stderr)
+        else:
+            kept_d.append(i)
+    kept_d.sort(key=lambda i: (i.get("pinned") or 0, i.get("reviews") or 0, _discount_pct(i)), reverse=True)
+    if len(kept_d) > MAX_DISCOUNTS:
+        print(f"[limits] discount cap: {len(kept_d)} -> {MAX_DISCOUNTS}", file=sys.stderr)
+        kept_d = kept_d[:MAX_DISCOUNTS]
+    if len(longterm) > MAX_LONGTERM:
+        print(f"[limits] longterm cap: {len(longterm)} -> {MAX_LONGTERM}", file=sys.stderr)
+        longterm = longterm[:MAX_LONGTERM]
+    return rest + kept_d + longterm
 
 
 def collect(source, strict):
@@ -107,6 +155,10 @@ def main():
     new_items = [i for i in all_items if str(i["srcId"]) not in seen]
     dupes = len(all_items) - len(new_items)
 
+    # Watchlist pinning + his section limits (caps, $30 price cap).
+    new_items = watchlist.apply(new_items)
+    new_items = enforce_limits(new_items)
+
     if not args.dry_run:
         id_token = store.signin()  # raises with API message on failure
         db_url = os.environ["FIREBASE_DB_URL"]
@@ -137,6 +189,7 @@ def main():
     print(f"    - fab free assets: {sum(1 for i in new_items if i['src'] == 'fab')}", file=sys.stderr)
     print(f"    - free-to-play games: {sum(1 for i in new_items if i['src'] == 'f2p')}", file=sys.stderr)
     print(f"    - steam discounts: {sum(1 for i in new_items if i['src'] == 'steam')}", file=sys.stderr)
+    print(f"    - pinned watchlist games: {sum(1 for i in new_items if i.get('pinned'))}", file=sys.stderr)
     print(f"  new scraped drafts (need approval): {sum(1 for i in new_items if i['status'] == 'draft')}", file=sys.stderr)
     print(f"  skipped as duplicates: {dupes}", file=sys.stderr)
     for s, e in errors.items():
