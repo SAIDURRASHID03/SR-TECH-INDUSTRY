@@ -82,6 +82,7 @@ def _from_search():
             params = {
                 "query": "", "start": page * PER_PAGE, "count": PER_PAGE,
                 "dynamic_data": "", "infinite": 1, "cc": "US", "l": "en",
+                "category1": "998",  # games only — no DLCs/soundtracks/bundles
             }
             params.update(extra)
             r = requests.get(SEARCH_URL, params=params, headers=UA, timeout=25)
@@ -115,6 +116,28 @@ def _from_featured():
     return out
 
 
+def _verify_free(appid):
+    """Confirm a $0 candidate is genuinely a free GAME (not a paid DLC with
+    broken price HTML). Returns True only if appdetails says so."""
+    try:
+        r = requests.get(
+            "https://store.steampowered.com/api/appdetails/",
+            params={"appids": appid, "cc": "US", "l": "en"},
+            headers=UA, timeout=15)
+        d = r.json().get(str(appid), {})
+        if not d.get("success"):
+            return False
+        info = d["data"]
+        if info.get("type") != "game":
+            return False
+        if info.get("is_free"):
+            return True
+        po = info.get("price_overview") or {}
+        return po.get("final") == 0
+    except Exception:
+        return False
+
+
 def fetch():
     """Return list of deal dicts. Never raises — returns [] on any failure."""
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -133,6 +156,10 @@ def fetch():
     for appid, name, img, final_c, orig_c, pct, reviews in raw:
         try:
             free = final_c == 0
+            if free and not _verify_free(appid):
+                print(f"[steam] ${name[:40]}: $0 in search but not a free game — skipped",
+                      file=sys.stderr)
+                continue
             deals.append(
                 {
                     "title": name,
