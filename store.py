@@ -76,6 +76,18 @@ def push(db_url, id_token, item):
     return body["name"]
 
 
+def update(db_url, id_token, key, fields):
+    """PATCH volatile fields on an existing deal (price-sync). Raises on error."""
+    db_url = db_url.rstrip("/")
+    r = requests.patch(
+        f"{db_url}/cms/dailydeals/{key}.json",
+        params={"auth": id_token},
+        json=fields,
+        timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+
+
 def delete(db_url, id_token, key):
     """Delete one deal by Firebase key (used to clean up drafts if needed)."""
     db_url = db_url.rstrip("/")
