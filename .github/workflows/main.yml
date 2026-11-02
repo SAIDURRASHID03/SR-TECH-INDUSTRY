@@ -1,9 +1,10 @@
 name: deals-bot
 
 on:
+  push:  # run automatically whenever new bot files are uploaded
   schedule:
-    # Every 6 hours: 11:00, 17:00, 23:00 and 05:00 Dhaka time (05, 11, 17, 23 UTC)
-    - cron: '0 5,11,17,23 * * *'
+    # Every 6 hours: 05:00, 11:00, 17:00, 23:00 Dhaka time (= 23, 05, 11, 17 UTC)
+    - cron: '0 23,5,11,17 * * *'
   workflow_dispatch:  # allow manual runs from the Actions tab
 
 jobs:
@@ -24,4 +25,4 @@ jobs:
           FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
           BOT_EMAIL: ${{ secrets.BOT_EMAIL }}
           BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
-        run: python main.py --source all
+        run: python main.py --source a
