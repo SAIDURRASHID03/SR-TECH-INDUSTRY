@@ -1,5 +1,6 @@
-"""Priority watchlist: popular games that jump to the top of Weekly Discounts
-the moment they go on sale.
+"""Priority watchlist: his 11 permanent popular games.
+They dominate the rankings: pinned to the top when on sale, and kept
+featured via ensure_featured() even without a discount.
 
 Matching is by title keywords (normalized), so it works for both Epic and
 Steam items. A match sets pinned=1 on the item; the site theme sorts pinned
@@ -11,18 +12,21 @@ import re
 # Each entry: (keywords, exact). exact=True means the normalized title must
 # EQUAL a keyword (used when a game's name sits inside another game's name,
 # e.g. "The Forest" inside "Sons Of The Forest").
+# His 11 permanent popular games — always on the first page.
+# When on sale: pinned to the very top. Even without a discount: kept in
+# the section via ensure_featured() so the Top-10 banner never loses them.
 WATCHLIST = [
     (("grand theft auto v", "grand theft auto 5", "gta v", "gta 5"), False),
     (("red dead redemption 2", "rdr2"), False),
     (("cyberpunk 2077",), False),
-    (("watch dogs legion",), False),
     (("watch dogs 2",), False),
-    (("tomb raider",), False),
-    (("the forest",), True),
-    (("fallout 4",), False),
+    (("watch dogs legion",), False),
+    (("sleeping dogs",), False),
+    (("god of war",), False),
     (("days gone",), False),
-    (("green hell",), False),
-    (("gold rush",), False),
+    (("horizon zero dawn",), False),
+    (("the witcher 3", "witcher 3 wild hunt"), False),
+    (("007 first light", "james bond first light"), False),
 ]
 
 
