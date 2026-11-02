@@ -31,6 +31,10 @@ GAMES = [
     ("Brawlhalla", "brawlhalla"),
     ("SMITE", "smite"),
     ("Paladins", "paladins"),
+    ("The Sims 4", "the-sims-4"),
+    ("Destiny 2", "destiny-2"),
+    ("SMITE 2", "smite-2"),
+    ("Trackmania", "trackmania"),
 ]
 
 

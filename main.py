@@ -35,9 +35,10 @@ import fab
 import f2p
 import images
 import scrapers
+import steam
 import store
 
-SOURCES = ("epic", "fab", "f2p", "gotd", "winningpc")
+SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc")
 
 
 def collect(source, strict):
@@ -49,6 +50,8 @@ def collect(source, strict):
             return fab.fetch(), None
         if source == "f2p":
             return f2p.fetch(), None
+        if source == "steam":
+            return steam.fetch(), None
         if source == "gotd":
             return scrapers.gotd(), None
         if source == "winningpc":
@@ -79,7 +82,7 @@ def main():
     ap = argparse.ArgumentParser(description="SR Tech Industry deal-bot")
     ap.add_argument("--dry-run", action="store_true",
                     help="collect and print only; no Cloudinary uploads, no Firebase writes")
-    ap.add_argument("--source", choices=("epic", "fab", "f2p", "scraped", "all"), default="all",
+    ap.add_argument("--source", choices=("epic", "fab", "f2p", "steam", "scraped", "all"), default="all",
                     help="'scraped' = gotd + winningpc (drafts only)")
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 if any source fails (default: log and continue)")
@@ -88,7 +91,8 @@ def main():
     wanted = list(SOURCES) if args.source == "all" else (
         ["epic"] if args.source == "epic" else (
         ["fab"] if args.source == "fab" else (
-        ["f2p"] if args.source == "f2p" else ["gotd", "winningpc"]))
+        ["f2p"] if args.source == "f2p" else (
+        ["steam"] if args.source == "steam" else ["gotd", "winningpc"])))
     )
 
     all_items, errors = [], {}
@@ -132,6 +136,7 @@ def main():
     print(f"    - epic on-sale games: {sum(1 for i in new_items if i['src'] == 'epic' and i['sub'] == 'discount')}", file=sys.stderr)
     print(f"    - fab free assets: {sum(1 for i in new_items if i['src'] == 'fab')}", file=sys.stderr)
     print(f"    - free-to-play games: {sum(1 for i in new_items if i['src'] == 'f2p')}", file=sys.stderr)
+    print(f"    - steam discounts: {sum(1 for i in new_items if i['src'] == 'steam')}", file=sys.stderr)
     print(f"  new scraped drafts (need approval): {sum(1 for i in new_items if i['status'] == 'draft')}", file=sys.stderr)
     print(f"  skipped as duplicates: {dupes}", file=sys.stderr)
     for s, e in errors.items():

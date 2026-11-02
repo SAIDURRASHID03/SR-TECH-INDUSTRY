@@ -10,7 +10,8 @@ website's Daily Deals section. Runs by itself 4 times a day (every 6 hours) — 
 | **Epic Games** | Weekly free games (title, image, original price, exact end date) → your **Weekly Free Games** section. **Only truly free games** (the bot verifies the price is $0 — discounted-but-not-free games never sneak in) | ✅ Goes live automatically — the data comes from Epic's own feed, so it's trustworthy |
 | **Epic Games** | Games currently on sale (sale price + original price, exact end date) → your **Weekly Discounts** section | ✅ Goes live automatically |
 | **Fab** (Epic's 3D marketplace) | Limited-time free 3D assets → your **Presets** section | ✅ Goes live automatically |
-| **Free-to-play** | 10 verified permanently-free Epic games (Fortnite, Rocket League, …) → your **Long-Term Free** section. The bot re-checks each game's real store page every run | ✅ Goes live automatically |
+| **Free-to-play** | 14 verified permanently-free Epic games (Fortnite, Rocket League, …) → your **Long-Term Free** section. The bot re-checks each game's real store page every run | ✅ Goes live automatically |
+| **Steam** | This week's discounted games (sale price + original price) → your **Weekly Discounts** section, next to the Epic deals | ✅ Goes live automatically |
 | **Giveaway of the Day** | Today's free software → your **Daily Free Software** section | 📝 Saved as a **draft** — you approve it with one tap in your admin panel |
 | **WinningPC** | Latest giveaway posts → **Daily Free Software**; coupon/discount posts → your **Weekly Discounts** section | 📝 Saved as a **draft** — you approve it with one tap in your admin panel |
 
