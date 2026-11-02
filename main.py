@@ -246,162 +246,138 @@ def verify_steam_listings(db_url, id_token, seen_sids, now_ms):
 
 
 def ensure_featured(db_url, id_token, now_ms, dry_run=False, epic_deals=None):
-    """Keep his 11 popular games ALWAYS in Weekly Discounts.
-    Compares Epic vs Steam and lists ONLY the better deal (lowest price).
-    When on sale: pinned to the very top. Even without a discount: kept with
-    pinned=1 so the Top-10 banner and first page never lose them."""
+    """Keep his popular games ALWAYS at the top of Weekly Discounts.
+    Uses HARDCODED Steam app IDs (no title search = 100% reliable).
+    For each game: checks Steam price via appdetails, compares with Epic
+    deals from this run, lists ONLY the cheaper platform.
+    Games on sale: pinned to very top, ranked by discount%. Even without
+    a discount: kept with pinned=1 so they stay on the first page."""
     import requests as _rq
-    from watchlist import WATCHLIST, _norm
     epic_deals = epic_deals or []
+    # His 22 popular games: (display name, Steam appid)
+    # 007 First Light omitted — unreleased, not on Steam yet.
+    FEATURED = [
+        ("Grand Theft Auto V", "3240220"),
+        ("Cyberpunk 2077", "1091500"),
+        ("God of War", "1593500"),
+        ("Red Dead Redemption 2", "1174180"),
+        ("Watch Dogs: Legion", "2239550"),
+        ("Days Gone", "1259420"),
+        ("The Witcher 3: Wild Hunt", "292030"),
+        ("Rust", "252490"),
+        ("ARK: Survival Evolved", "346110"),
+        ("No Man's Sky", "275850"),
+        ("Resident Evil 4", "2050650"),
+        ("Resident Evil Village", "1196590"),
+        ("Monster Hunter Wilds", "2246340"),
+        ("Teardown", "1167630"),
+        ("Human Fall Flat", "477160"),
+        ("Sid Meier's Civilization VII", "1295660"),
+        ("Dredge", "1562430"),
+        ("Brotato", "1942280"),
+        ("Gray Zone Warfare", "2479810"),
+        ("Tomb Raider", "203160"),
+        ("Sleeping Dogs", "202170"),
+    ]
     data = store.read_existing(db_url, id_token)
-    # Index existing by normalized title keywords
-    existing_titles = set()
-    for v in (data or {}).values():
-        if isinstance(v, dict) and v.get("title"):
-            existing_titles.add(_norm(v["title"]))
-    added = 0
-    for keywords, exact in WATCHLIST:
-        # Check if any keyword matches an existing title
-        found_key = None
-        found_rec = None
-        for kw in keywords:
-            for et in existing_titles:
-                if (et == kw) if exact else (kw in et or et in kw):
-                    found_key = et
-                    # find the record
-                    for k2, v2 in (data or {}).items():
-                        if isinstance(v2, dict) and _norm(v2.get("title", "")) == et:
-                            found_rec = (k2, v2)
-                            break
-                    break
-            if found_key:
-                break
-        if found_key and found_rec:
-            # Already listed — check if Epic has a better price right now
-            fkey, frec = found_rec
-            try:
-                cur_final = float(frec.get("sale") or frec.get("price") or 999999)
-            except (ValueError, TypeError):
-                cur_final = 999999
-            best_epic = None
-            for ed in epic_deals:
-                et = _norm(ed.get("title", ""))
-                if any(kw in et for kw in keywords):
-                    try:
-                        ef = float(ed.get("sale") or ed.get("price") or 999999)
-                    except (ValueError, TypeError):
-                        continue
-                    if ef < cur_final:
-                        best_epic = (ed, ef)
-            if best_epic and not dry_run:
-                ed, ef = best_epic
-                try:
-                    store.update(db_url, id_token, fkey, {
-                        "url": ed.get("url", ""),
-                        "price": ed.get("price", ""),
-                        "sale": ed.get("sale", ""),
-                        "src": "epic",
-                        "srcId": ed.get("srcId", ""),
-                        "desc": f"Popular game — best price on Epic.",
-                        "ts": now_ms,
-                    })
-                    print(f"[featured] {frec.get('title','?')[:40]}: switched to Epic (${ef:.2f} beats ${cur_final:.2f})",
-                          file=sys.stderr)
-                except Exception as ex:
-                    print(f"[featured] platform switch failed: {ex}", file=sys.stderr)
-            continue
-        # Not listed — find best price across Steam and Epic
+    # Index existing by srcId for fast lookup
+    by_srcid = {}
+    for k, v in (data or {}).items():
+        if isinstance(v, dict) and v.get("srcId"):
+            by_srcid[str(v["srcId"])] = (k, v)
+    def _final(p, s):
         try:
-            q = keywords[0]
-            # --- Steam price ---
-            steam_price = steam_sale = ""
-            steam_url = ""
-            r = _rq.get("https://store.steampowered.com/api/storesearch/",
-                        params={"term": q, "l": "en", "cc": "BD"},
+            return float(s) if s else float(p) if p else 999999
+        except (ValueError, TypeError):
+            return 999999
+    for disp_name, appid in FEATURED:
+        try:
+            # --- Steam price via appdetails (direct, no search) ---
+            r = _rq.get("https://store.steampowered.com/api/appdetails/",
+                        params={"appids": appid, "cc": "BD", "l": "en"},
                         timeout=15)
-            items = r.json().get("items", [])
-            if items:
-                app = items[0]
-                appid = str(app["id"])
-                r2 = _rq.get("https://store.steampowered.com/api/appdetails/",
-                             params={"appids": appid, "cc": "BD", "l": "en"},
-                             timeout=15)
-                info = r2.json().get(appid, {}).get("data", {})
-                if info and info.get("type") == "game":
-                    po = info.get("price_overview") or {}
-                    if po:
-                        steam_price = f"{po['initial'] / 100:.2f}"
-                        if po.get("discount_percent", 0) > 0:
-                            steam_sale = f"{po['final'] / 100:.2f}"
-                    steam_url = f"https://store.steampowered.com/app/{appid}/"
-                    steam_name = info.get("name", q.title())
-                    steam_img = info.get("header_image", "")
-            # --- Epic price (from this run's collected deals) ---
-            epic_price = epic_sale = ""
-            epic_url = ""
-            for ed in epic_deals:
-                et = _norm(ed.get("title", ""))
-                if any(kw in et for kw in keywords):
-                    # Found in Epic deals — use its price
-                    epic_price = ed.get("price", "")
-                    epic_sale = ed.get("sale", "")
-                    epic_url = ed.get("url", "")
-                    break
-            # --- Pick the better deal (lowest final price) ---
-            def _final(p, s):
-                try:
-                    return float(s) if s else float(p) if p else 999999
-                except (ValueError, TypeError):
-                    return 999999
-            steam_final = _final(steam_price, steam_sale)
-            epic_final = _final(epic_price, epic_sale)
-            if epic_final < steam_final and epic_url:
-                # Epic wins
-                price, sale, url = epic_price, epic_sale, epic_url
-                src_name, img = "epic", ""
-                title = q.title()
-            elif steam_url:
-                # Steam wins (or only option)
-                price, sale, url = steam_price, steam_sale, steam_url
-                src_name, img = "steam", steam_img
-                title = steam_name
-            else:
+            info = r.json().get(appid, {}).get("data", {})
+            if not info or info.get("type") != "game":
                 continue
+            po = info.get("price_overview") or {}
+            s_price = f"{po['initial']/100:.2f}" if po else ""
+            s_sale = f"{po['final']/100:.2f}" if po and po.get("discount_percent",0)>0 else ""
+            s_url = f"https://store.steampowered.com/app/{appid}/"
+            s_name = info.get("name", disp_name)
+            s_img = info.get("header_image", "")
+            # --- Epic price (from this run's deals, match by name) ---
+            e_price = e_sale = e_url = ""
+            nl = disp_name.lower()
+            for ed in epic_deals:
+                et = (ed.get("title") or "").lower()
+                # fuzzy: all significant words of disp_name appear in epic title
+                words = [w for w in nl.replace(":","").split() if len(w) > 2]
+                if words and all(w in et for w in words):
+                    e_price = ed.get("price", "")
+                    e_sale = ed.get("sale", "")
+                    e_url = ed.get("url", "")
+                    break
+            # --- Pick cheaper platform ---
+            s_final = _final(s_price, s_sale)
+            e_final = _final(e_price, e_sale)
+            if e_final < s_final and e_url:
+                price, sale, url = e_price, e_sale, e_url
+                src_name, img, title = "epic", "", disp_name
+                src_id = f"epic:featured-{appid}"
+            else:
+                price, sale, url = s_price, s_sale, s_url
+                src_name, img, title = "steam", s_img, s_name
+                src_id = f"steam:{appid}"
             if not price:
                 continue
-            # srcId must be stable per platform so dedup works
-            src_id = f"{src_name}:{appid}" if src_name == "steam" else f"epic:{q.replace(' ', '-')}"
+            # --- Add or update ---
+            if src_id in by_srcid:
+                # Already listed — ensure pinned=1 and price is fresh
+                fkey, frec = by_srcid[src_id]
+                if not dry_run:
+                    upd = {"ts": now_ms, "pinned": 1}
+                    if frec.get("price") != price:
+                        upd["price"] = price
+                    if frec.get("sale") != sale:
+                        upd["sale"] = sale
+                    if len(upd) > 2 or frec.get("pinned") != 1:
+                        store.update(db_url, id_token, fkey, upd)
+                continue
+            # Not listed — check if a DIFFERENT platform version exists
+            alt_id = f"epic:featured-{appid}" if src_name=="steam" else f"steam:{appid}"
+            if alt_id in by_srcid:
+                # Switch to cheaper platform
+                fkey, frec = by_srcid[alt_id]
+                if not dry_run:
+                    store.update(db_url, id_token, fkey, {
+                        "url": url, "price": price, "sale": sale,
+                        "src": src_name, "srcId": src_id,
+                        "desc": f"Popular game — best price on {src_name.title()}.",
+                        "ts": now_ms, "pinned": 1,
+                    })
+                    print(f"[featured] {title[:40]}: switched to {src_name}",
+                          file=sys.stderr)
+                continue
+            # Brand new — add it
             item = {
                 "title": title,
                 "desc": f"Popular game — best price on {src_name.title()}.",
-                "url": url,
-                "img": img,
-                "images": [],
-                "sub": "discount",
-                "price": price,
-                "sale": sale,
-                "reviews": 0,
-                "pinned": 1,
-                "expiresAt": now_ms + 7 * 24 * 3600 * 1000,
-                "src": src_name,
-                "srcId": src_id,
-                "status": "live",
-                "ts": now_ms,
+                "url": url, "img": img, "images": [],
+                "sub": "discount", "price": price, "sale": sale,
+                "reviews": 0, "pinned": 1,
+                "expiresAt": now_ms + 7*24*3600*1000,
+                "src": src_name, "srcId": src_id,
+                "status": "live", "ts": now_ms,
             }
             if not dry_run:
-                # Upload image to Cloudinary
-                final_img = images.upload(item["img"])
+                final_img = images.upload(img) if img else ""
                 item["img"] = final_img
                 item["images"] = [final_img] if final_img else []
                 store.push(db_url, id_token, item)
-                added += 1
-                print(f"[featured] {item['title'][:45]}: added as permanent popular pick",
+                print(f"[featured] {title[:40]}: added ({src_name} ${sale or price})",
                       file=sys.stderr)
         except Exception as ex:
-            print(f"[featured] {keywords[0]} failed: {ex}", file=sys.stderr)
-    if added:
-        print(f"[featured] {added} popular game(s) ensured in section", file=sys.stderr)
-
+            print(f"[featured] {disp_name} failed: {ex}", file=sys.stderr)
 
 def prune_stale_deals(db_url, id_token, now_ms):
     """Delete steam discount items not seen on sale for 24h.
