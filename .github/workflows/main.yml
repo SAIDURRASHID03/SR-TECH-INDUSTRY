@@ -7,6 +7,12 @@ on:
     - cron: '0 23,5,11,17 * * *'
   workflow_dispatch:  # allow manual runs from the Actions tab
 
+# Never run two collectors at once: overlapping runs both read Firebase
+# before either pushes, which creates duplicate entries. Extra runs queue.
+concurrency:
+  group: deals-bot
+  cancel-in-progress: false
+
 jobs:
   collect:
     runs-on: ubuntu-latest
