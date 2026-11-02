@@ -17,16 +17,27 @@ import re
 # the section via ensure_featured() so the Top-10 banner never loses them.
 WATCHLIST = [
     (("grand theft auto v", "grand theft auto 5", "gta v", "gta 5"), False),
-    (("red dead redemption 2", "rdr2"), False),
     (("cyberpunk 2077",), False),
-    (("watch dogs 2",), False),
-    (("watch dogs legion",), False),
-    (("sleeping dogs",), False),
     (("god of war",), False),
+    (("red dead redemption 2", "rdr2"), False),
+    (("watch dogs legion",), False),
     (("days gone",), False),
-    (("horizon zero dawn",), False),
     (("the witcher 3", "witcher 3 wild hunt"), False),
+    (("rust",), True),  # exact: common word
+    (("ark survival evolved", "ark: survival evolved"), False),
+    (("no man's sky", "no mans sky"), False),
+    (("resident evil 4",), False),
+    (("resident evil village", "resident evil 8"), False),
+    (("monster hunter wilds",), False),
+    (("teardown",), False),
+    (("human fall flat",), False),
+    (("civilization vii", "civ 7", "sid meier"), False),
+    (("dredge",), True),  # exact: common word
+    (("brotato",), False),
+    (("grey zone warfare", "gray zone warfare"), False),
     (("007 first light", "james bond first light"), False),
+    (("tomb raider",), False),
+    (("sleeping dogs",), False),
 ]
 
 

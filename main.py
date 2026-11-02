@@ -44,7 +44,7 @@ SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc")
 
 # Section limits (his rules): Weekly Discounts holds at most 50 live games,
 # Long-Term Free at most 30, and no discounted game may cost more than $30.
-MAX_DISCOUNTS = 50
+MAX_DISCOUNTS = 150
 MAX_LONGTERM = 30
 PRICE_CAP_USD = 30.0
 
