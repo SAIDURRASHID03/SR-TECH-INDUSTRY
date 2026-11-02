@@ -181,6 +181,99 @@ def trim_discounts(db_url, id_token, now_ms):
     return deleted
 
 
+def verify_steam_listings(db_url, id_token, seen_sids, now_ms):
+    """Direct price check for existing steam discounts NOT re-collected this run.
+    The specials search can miss items or carry stale prices — appdetails is
+    the source of truth. Updates changed prices, deletes ended sales.
+    Only checks items not seen for 3h+ to bound API calls."""
+    import time as _time
+    import requests as _rq
+    data = store.read_existing(db_url, id_token)
+    checked = updated = removed = 0
+    for key, v in (data or {}).items():
+        if not isinstance(v, dict):
+            continue
+        if v.get("src") != "steam" or v.get("sub") not in ("discount", "games"):
+            continue
+        if v.get("status") != "live" or not v.get("srcId"):
+            continue
+        if str(v["srcId"]) in seen_sids:
+            continue  # re-collected -> already synced
+        if (v.get("ts") or 0) > now_ms - 3 * 3600 * 1000:
+            continue  # verified recently
+        appid = str(v["srcId"]).split(":", 1)[1]
+        try:
+            r = _rq.get("https://store.steampowered.com/api/appdetails/",
+                        params={"appids": appid, "cc": "US", "l": "en"},
+                        timeout=15)
+            d = r.json().get(appid, {})
+            if not d.get("success"):
+                continue
+            info = d["data"]
+            po = info.get("price_overview") or {}
+            checked += 1
+            _time.sleep(0.3)  # be polite to the API
+            if v.get("sub") == "games":
+                # Free-game check: must actually be a free game
+                if info.get("type") != "game" or (not info.get("is_free") and (po.get("final", 1) != 0)):
+                    store.delete(db_url, id_token, key)
+                    removed += 1
+                    print(f"[verify] {v.get('title','?')[:45]}: not actually free — removed",
+                          file=sys.stderr)
+                    continue
+                store.update(db_url, id_token, key, {"ts": now_ms})
+                continue
+            if not po or po.get("discount_percent", 0) <= 0:
+                # Sale ended -> remove so the section never shows dead prices
+                store.delete(db_url, id_token, key)
+                removed += 1
+                print(f"[verify] {v.get('title','?')[:45]}: sale ended — removed",
+                      file=sys.stderr)
+                continue
+            new_sale = f"{po['final'] / 100:.2f}"
+            new_price = f"{po['initial'] / 100:.2f}"
+            if new_sale != v.get("sale") or new_price != v.get("price"):
+                store.update(db_url, id_token, key,
+                             {"sale": new_sale, "price": new_price, "ts": now_ms})
+                updated += 1
+                print(f"[verify] {v.get('title','?')[:45]}: ${v.get('sale')} -> ${new_sale}",
+                      file=sys.stderr)
+            else:
+                store.update(db_url, id_token, key, {"ts": now_ms})
+        except Exception as ex:
+            print(f"[verify] {appid} failed: {ex}", file=sys.stderr)
+    if checked:
+        print(f"[verify] checked {checked} stale listing(s): {updated} repriced, {removed} ended",
+              file=sys.stderr)
+
+
+def prune_stale_deals(db_url, id_token, now_ms):
+    """Delete steam discount items not seen on sale for 24h.
+    A sale that ended stops appearing in the specials search, so its ts
+    goes stale — prune it so the section never shows dead prices.
+    Manual items (no srcId) are never touched. Returns the number deleted."""
+    data = store.read_existing(db_url, id_token)
+    cutoff = now_ms - 24 * 3600 * 1000
+    deleted = 0
+    for key, v in (data or {}).items():
+        if not isinstance(v, dict):
+            continue
+        if v.get("src") != "steam" or v.get("sub") != "discount":
+            continue
+        if v.get("status") != "live" or not v.get("srcId"):
+            continue
+        if (v.get("ts") or 0) < cutoff:
+            try:
+                store.delete(db_url, id_token, key)
+                deleted += 1
+            except Exception as ex:
+                print(f"[prune] failed to delete {key}: {ex}", file=sys.stderr)
+    if deleted:
+        print(f"[prune] removed {deleted} stale discount(s) not seen on sale for 24h",
+              file=sys.stderr)
+    return deleted
+
+
 def existing_src_ids(dry_run):
     """{srcId: (firebase_key, expiresAt)} already in Firebase.
     Skipped in dry-run (no credentials)."""
@@ -256,15 +349,15 @@ def main():
         elif not args.dry_run:
             # Price-sync: the deal is already listed — refresh volatile fields
             # (price, sale, reviews, pinned...) so the site matches the store.
+            # ts is ALWAYS bumped: it proves "still on sale right now".
             patch = {f: i.get(f) for f in SYNC_FIELDS
                      if i.get(f) != rec.get(f)}
-            if patch:
-                patch["ts"] = now_ms
-                try:
-                    store.update(db_url, id_token, key, patch)
-                    synced += 1
-                except Exception as ex:
-                    print(f"[sync] update failed for {sid}: {ex}", file=sys.stderr)
+            patch["ts"] = now_ms
+            try:
+                store.update(db_url, id_token, key, patch)
+                synced += 1
+            except Exception as ex:
+                print(f"[sync] update failed for {sid}: {ex}", file=sys.stderr)
     dupes = len(all_items) - len(new_items) - refreshed
     print(f"[sync] {synced} existing item(s) refreshed with live data", file=sys.stderr)
 
@@ -290,7 +383,10 @@ def main():
             pushed_draft += 1
 
     if not args.dry_run:
-        trim_discounts(db_url, id_token, int(datetime.now(timezone.utc).timestamp() * 1000))
+        _now = int(datetime.now(timezone.utc).timestamp() * 1000)
+        verify_steam_listings(db_url, id_token, set(str(i["srcId"]) for i in all_items), _now)
+        trim_discounts(db_url, id_token, _now)
+        prune_stale_deals(db_url, id_token, _now)
 
     if args.dry_run:
         print(json.dumps(new_items, indent=2, ensure_ascii=False))
