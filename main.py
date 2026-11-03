@@ -531,6 +531,10 @@ def main():
                 if _v.get("status") == "draft" and _v.get("src") in ("gotd", "winningpc", "gotd-game", "gotd-android", "gotd-iphone"):
                     store.update(db_url, id_token, _k, {"status": "live", "ts": _now})
                     print(f"[migrate] {_t[:40]}: draft -> live", file=sys.stderr)
+                # GOTD Game items stuck in Daily -> move to Weekly Free Games
+                if _v.get("src") == "gotd-game" and _v.get("sub") == "daily":
+                    store.update(db_url, id_token, _k, {"sub": "games", "ts": _now})
+                    print(f"[migrate] gotd-game -> Weekly Free Games: {_t[:40]}", file=sys.stderr)
                 # Manual admin items missing status -> set live
                 if not _v.get("status") and _v.get("sub") in ("daily", "games", "discount", "longterm", "preset"):
                     store.update(db_url, id_token, _k, {"status": "live", "ts": _now})
