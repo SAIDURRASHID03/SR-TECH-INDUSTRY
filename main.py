@@ -40,7 +40,7 @@ import steam
 import store
 import watchlist
 
-SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc", "creativemarket", "polyhaven")
+SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc", "creativemarket")
 
 # Section limits (his rules): Weekly Discounts holds at most 50 live games,
 # Long-Term Free at most 30, and no discounted game may cost more than $30.
@@ -107,8 +107,6 @@ def collect(source, strict):
             return scrapers.winningpc(), None
         if source == "creativemarket":
             return scrapers.creativemarket(), None
-        if source == "polyhaven":
-            return scrapers.polyhaven(), None
     except Exception as ex:  # noqa: BLE001 - defensive by design
         msg = f"{source}: {ex}"
         print(f"[{source}] FAILED: {ex}", file=sys.stderr)
@@ -462,7 +460,7 @@ def main():
     # Volatile fields refreshed on every run so prices/ratings never go stale.
     # status/sub/img/images/desc/url are NEVER touched here (drafts stay drafts,
     # manual items have no srcId and are invisible to this loop).
-    SYNC_FIELDS = ("price", "sale", "reviews", "pinned", "expiresAt", "title")
+    SYNC_FIELDS = ("price", "sale", "reviews", "pinned", "title")  # expiresAt NEVER synced - let timers count down
     new_items, refreshed, synced = [], 0, 0
     for i in all_items:
         sid = str(i["srcId"])
@@ -533,6 +531,14 @@ def main():
                 if _v.get("status") == "draft" and _v.get("src") in ("gotd", "winningpc", "gotd-game", "gotd-android", "gotd-iphone"):
                     store.update(db_url, id_token, _k, {"status": "live", "ts": _now})
                     print(f"[migrate] {_t[:40]}: draft -> live", file=sys.stderr)
+                # Cleanup: remove Poly Haven items (always-free, not limited-time)
+                if _v.get("src") == "polyhaven":
+                    try:
+                        store.delete(db_url, id_token, _k)
+                        print(f"[migrate] polyhaven removed: {_t[:40]}", file=sys.stderr)
+                    except Exception:
+                        pass
+                    continue
                 # GOTD Game items stuck in Daily -> move to Weekly Free Games
                 if _v.get("src") == "gotd-game" and _v.get("sub") == "daily":
                     store.update(db_url, id_token, _k, {"sub": "games", "ts": _now})
