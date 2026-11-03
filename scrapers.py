@@ -114,13 +114,13 @@ def gotd():
     """All 4 Giveaway of the Day sections, via RSS feeds.
     Returns list of items (one per section) posted within 36h."""
     feeds = [
-        ("http://feeds.feedburner.com/giveawayoftheday/feed", "gotd"),
-        ("https://game.giveawayoftheday.com/feed/", "gotd-game"),
-        ("https://android.giveawayoftheday.com/feed/", "gotd-android"),
-        ("https://iphone.giveawayoftheday.com/feed/", "gotd-iphone"),
+        ("http://feeds.feedburner.com/giveawayoftheday/feed", "gotd", "daily"),
+        ("https://game.giveawayoftheday.com/feed/", "gotd-game", "games"),
+        ("https://android.giveawayoftheday.com/feed/", "gotd-android", "daily"),
+        ("https://iphone.giveawayoftheday.com/feed/", "gotd-iphone", "daily"),
     ]
     items = []
-    for feed_url, src_name in feeds:
+    for feed_url, src_name, sub in feeds:
         try:
             xml = _get(feed_url)
         except Exception as ex:
@@ -168,7 +168,7 @@ def gotd():
             desc = meta.meta.get("description", "")
             img = meta.meta.get("image", "") or (meta.imgs[0] if meta.imgs else "")
             price = _find_price(html)
-            items.append(_mk_item(title, desc, post_url, img, price, "daily", src_name, 24))
+            items.append(_mk_item(title, desc, post_url, img, price, sub, src_name, 24))
             print(f"[gotd] {src_name}: {title[:45]}", file=sys.stderr)
         except Exception as ex:
             print(f"[gotd] {src_name} parse failed: {ex}", file=sys.stderr)
@@ -239,3 +239,59 @@ def winningpc():
                 continue
         time.sleep(1)
     return items
+
+
+def creativemarket():
+    """Scrape Creative Market's 4 weekly free design assets.
+    Returns list of items for the Presets section."""
+    url = "https://creativemarket.com/free-goods"
+    try:
+        html = _get(url)
+    except Exception as ex:
+        print(f"[creativemarket] fetch failed: {ex}", file=sys.stderr)
+        return []
+    items = []
+    # Find the "Free design asset downloads" section and extract products
+    m = re.search(r"Free design asset downloads(.*?)(?:<h[12]|Unlock the full Drop)", html, re.S | re.I)
+    section = m.group(1) if m else html
+    # Product URLs: /username/123456-Product-Name
+    seen_urls = set()
+    for pm in re.finditer(r'href="(/[A-Za-z0-9._]+/\d+-[^"\s]+)"', section):
+        purl = "https://creativemarket.com" + pm.group(1)
+        if purl in seen_urls:
+            continue
+        seen_urls.add(purl)
+        if len(items) >= 4:
+            break
+        try:
+            # Extract title from URL slug
+            slug = pm.group(1).split("/")[-1]
+            # Remove leading ID: 123456-Product-Name -> Product-Name
+            slug = re.sub(r"^\d+-", "", slug)
+            title = slug.replace("-", " ").strip()
+            if not title or len(title) < 3:
+                continue
+            # Try to get image from nearby img tag
+            # Find the card containing this link
+            card_start = max(0, pm.start() - 2000)
+            card = html[card_start:pm.start() + 500]
+            im = re.search(r'<img[^>]*src="([^"]+)"', card)
+            img = im.group(1) if im else ""
+            # Skip tiny icons, prefer product images
+            if img and ("icon" in img.lower() or "avatar" in img.lower()):
+                img = ""
+            items.append(_mk_item(
+                title=title,
+                desc="Free design asset from Creative Market's weekly freebies — fonts, brushes, templates, graphics.",
+                url=purl,
+                img=img,
+                price="",
+                sub="preset",
+                src="creativemarket",
+                ttl_hours=7 * 24,  # Weekly refresh
+            ))
+            print(f"[creativemarket] {title[:45]}", file=sys.stderr)
+        except Exception as ex:
+            continue
+    return items
+

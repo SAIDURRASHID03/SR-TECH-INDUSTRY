@@ -40,7 +40,7 @@ import steam
 import store
 import watchlist
 
-SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc")
+SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc", "creativemarket")
 
 # Section limits (his rules): Weekly Discounts holds at most 50 live games,
 # Long-Term Free at most 30, and no discounted game may cost more than $30.
@@ -105,6 +105,8 @@ def collect(source, strict):
             return scrapers.gotd(), None
         if source == "winningpc":
             return scrapers.winningpc(), None
+        if source == "creativemarket":
+            return scrapers.creativemarket(), None
     except Exception as ex:  # noqa: BLE001 - defensive by design
         msg = f"{source}: {ex}"
         print(f"[{source}] FAILED: {ex}", file=sys.stderr)
@@ -529,6 +531,10 @@ def main():
                 if _v.get("status") == "draft" and _v.get("src") in ("gotd", "winningpc", "gotd-game", "gotd-android", "gotd-iphone"):
                     store.update(db_url, id_token, _k, {"status": "live", "ts": _now})
                     print(f"[migrate] {_t[:40]}: draft -> live", file=sys.stderr)
+                # Manual admin items missing status -> set live
+                if not _v.get("status") and _v.get("sub") in ("daily", "games", "discount", "longterm", "preset"):
+                    store.update(db_url, id_token, _k, {"status": "live", "ts": _now})
+                    print(f"[migrate] status fix (live): {_t[:40]}", file=sys.stderr)
                 # FORCE FIX 1: all Daily Free Software items get 24h expiry (was 72h for WinningPC)
                 if _v.get("sub") == "daily" and _v.get("status") == "live":
                     _exp = _v.get("expiresAt")

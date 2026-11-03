@@ -10,7 +10,7 @@ discounts under the $30 price cap.
 
 Fallback: the smaller featured-categories API (10 curated specials).
 
-status='live' (official Steam data, auto-publishes). expiresAt = now + 7d
+status='live' (official Steam data, auto-publishes). expiresAt = None (no fake timer)
 fallback — Steam gives no end date and specials refresh weekly.
 A $0.00 final price (rare freebie) goes to Weekly Free Games instead.
 Polite: 2-3 requests per run.
@@ -171,7 +171,7 @@ def fetch():
                     "price": _usd(orig_c) if orig_c else "",
                     "sale": "" if free else _usd(final_c),
                     "reviews": reviews,
-                    "expiresAt": now_ms + 7 * 24 * 3600 * 1000,
+                    "expiresAt": None,  # No fake timer - Steam does not provide real end dates
                     "src": "steam",
                     "srcId": f"steam:{appid}",
                     "status": "live",
