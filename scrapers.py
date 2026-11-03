@@ -111,45 +111,64 @@ def _mk_item(title, desc, url, img, price, sub, src, ttl_hours, status="live"):
 
 
 def gotd():
-    """Today's Giveaway of the Day, via their RSS feed (stable) + the post page
-    for image/description/price. Returns [item] or []."""
-    try:
-        xml = _get("https://www.giveawayoftheday.com/feed/")
-    except Exception as ex:
-        print(f"[gotd] feed fetch failed: {ex}", file=sys.stderr)
-        return []
-    try:
-        m = re.search(r"<item>.*?<link>(.*?)</link>.*?<pubDate>(.*?)</pubDate>", xml, re.S)
-        if not m:
-            print("[gotd] feed structure unrecognized: no items", file=sys.stderr)
-            return []
-        post_url = m.group(1).strip()
-        # 24h freshness filter
+    """All 4 Giveaway of the Day sections, via RSS feeds.
+    Returns list of items (one per section) posted within 36h."""
+    feeds = [
+        ("http://feeds.feedburner.com/giveawayoftheday/feed", "gotd"),
+        ("https://game.giveawayoftheday.com/feed/", "gotd-game"),
+        ("https://android.giveawayoftheday.com/feed/", "gotd-android"),
+        ("https://iphone.giveawayoftheday.com/feed/", "gotd-iphone"),
+    ]
+    items = []
+    for feed_url, src_name in feeds:
         try:
-            from email.utils import parsedate_to_datetime
-            pub = parsedate_to_datetime(m.group(2).strip())
-            age_h = (datetime.now(timezone.utc) - pub).total_seconds() / 3600
-            if age_h > 24:
-                print(f"[gotd] skip: post is {age_h:.1f}h old (>24h)", file=sys.stderr)
-                return []
+            xml = _get(feed_url)
         except Exception as ex:
-            print(f"[gotd] pubDate parse failed ({ex}), including anyway", file=sys.stderr)
-        html = _get(post_url)
-        p = _parse_meta(html)
-        title = p.meta.get("title", "")
-        title = re.sub(r"(?i)^giveaway of the day\s*[—–-]\s*", "", title).strip()
-        if not title or len(title) < 3:
-            print("[gotd] post structure unrecognized: no title", file=sys.stderr)
-            return []
-        desc = p.meta.get("description", "")
-        img = p.meta.get("image", "") or (p.imgs[0] if p.imgs else "")
-        price = _find_price(html)
-        # GOTD giveaways run ~24h from post time; documented fallback.
-        return [_mk_item(title, desc, post_url, img, price, "daily", "gotd", 24)]
-    except Exception as ex:
-        print(f"[gotd] parse failed: {ex}", file=sys.stderr)
-        return []
-
+            print(f"[gotd] {src_name} feed failed: {ex}", file=sys.stderr)
+            continue
+        try:
+            # Get the latest item
+            im = re.search(r"<item>(.*?)</item>", xml, re.S)
+            if not im:
+                continue
+            item_xml = im.group(1)
+            lm = re.search(r"<link>(.*?)</link>", item_xml, re.S)
+            pm = re.search(r"<pubDate>(.*?)</pubDate>", item_xml)
+            if not lm:
+                continue
+            post_url = re.sub(r"<[^>]+>", "", lm.group(1)).strip()
+            # 36h freshness filter
+            if pm:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    pub = parsedate_to_datetime(pm.group(1).strip())
+                    age_h = (datetime.now(timezone.utc) - pub).total_seconds() / 3600
+                    if age_h > 36:
+                        print(f"[gotd] {src_name} skip: {age_h:.1f}h old", file=sys.stderr)
+                        continue
+                except Exception:
+                    pass
+            # Fetch post page for details
+            html = _get(post_url)
+            meta = _parse_meta(html)
+            title = meta.meta.get("title", "")
+            title = re.sub(r"(?i)^giveaway of the day\s*[—–-]\s*", "", title).strip()
+            # Section label from src_name
+            section = {"gotd": "Windows", "gotd-game": "Game",
+                       "gotd-android": "Android", "gotd-iphone": "iPhone"}.get(src_name, "")
+            if section and section.lower() not in title.lower():
+                title = f"{title} ({section})"
+            if not title or len(title) < 3:
+                continue
+            desc = meta.meta.get("description", "")
+            img = meta.meta.get("image", "") or (meta.imgs[0] if meta.imgs else "")
+            price = _find_price(html)
+            items.append(_mk_item(title, desc, post_url, img, price, "daily", src_name, 24))
+            print(f"[gotd] {src_name}: {title[:45]}", file=sys.stderr)
+        except Exception as ex:
+            print(f"[gotd] {src_name} parse failed: {ex}", file=sys.stderr)
+            continue
+    return items
 
 def _classify_wpc(url, title):
     """WinningPC posts: coupon/discount/deal posts -> 'discount' (Weekly Discounts);
@@ -206,8 +225,8 @@ def winningpc():
                     try:
                         pub = datetime.fromisoformat(pub_raw.replace("Z", "+00:00"))
                         age_h = (datetime.now(timezone.utc) - pub).total_seconds() / 3600
-                        if age_h > 24:
-                            print(f"[winningpc] skip {u}: {age_h:.1f}h old (>24h)", file=sys.stderr)
+                        if age_h > 36:
+                            print(f"[winningpc] skip {u}: {age_h:.1f}h old (>36h)", file=sys.stderr)
                             continue
                     except Exception:
                         pass  # unparseable date -> include anyway

@@ -518,6 +518,15 @@ def main():
 
     if not args.dry_run:
         _now = int(datetime.now(timezone.utc).timestamp() * 1000)
+        # One-time: convert old gotd/winningpc drafts to live (2026-11-03 policy change)
+        try:
+            _data = store.read_existing(db_url, id_token)
+            for _k, _v in (_data or {}).items():
+                if isinstance(_v, dict) and _v.get("status") == "draft" and _v.get("src") in ("gotd", "winningpc"):
+                    store.update(db_url, id_token, _k, {"status": "live", "ts": _now})
+                    print(f"[migrate] {_v.get('title','?')[:40]}: draft -> live", file=sys.stderr)
+        except Exception as ex:
+            print(f"[migrate] failed: {ex}", file=sys.stderr)
         verify_steam_listings(db_url, id_token, set(str(i["srcId"]) for i in all_items), _now)
         _epic = [i for i in all_items if i.get("src") == "epic"]
         ensure_featured(db_url, id_token, _now, args.dry_run, _epic)
