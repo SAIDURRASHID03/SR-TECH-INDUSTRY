@@ -40,7 +40,7 @@ import steam
 import store
 import watchlist
 
-SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc", "creativemarket")
+SOURCES = ("epic", "fab", "f2p", "steam", "gotd", "winningpc", "creativemarket", "polyhaven")
 
 # Section limits (his rules): Weekly Discounts holds at most 50 live games,
 # Long-Term Free at most 30, and no discounted game may cost more than $30.
@@ -107,6 +107,8 @@ def collect(source, strict):
             return scrapers.winningpc(), None
         if source == "creativemarket":
             return scrapers.creativemarket(), None
+        if source == "polyhaven":
+            return scrapers.polyhaven(), None
     except Exception as ex:  # noqa: BLE001 - defensive by design
         msg = f"{source}: {ex}"
         print(f"[{source}] FAILED: {ex}", file=sys.stderr)

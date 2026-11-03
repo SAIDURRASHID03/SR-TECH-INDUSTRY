@@ -295,3 +295,41 @@ def creativemarket():
             continue
     return items
 
+
+def polyhaven():
+    """Scrape Poly Haven's latest free 3D assets (models, textures, HDRIs).
+    All CC0 - free for commercial use. Uses their public API.
+    Returns list of items for the Presets section."""
+    import json as _json
+    try:
+        # Get all assets, sorted by publish date (newest first)
+        data = _json.loads(_get("https://api.polyhaven.com/assets?t=models"))
+    except Exception as ex:
+        print(f"[polyhaven] API failed: {ex}", file=sys.stderr)
+        return []
+    items = []
+    # Sort by date_published descending, take 6 latest
+    sorted_assets = sorted(data.items(), key=lambda x: x[1].get("date_published", 0), reverse=True)[:6]
+    for slug, info in sorted_assets:
+        try:
+            name = info.get("name", slug.replace("_", " "))
+            cats = ", ".join(info.get("categories", [])[:3])
+            desc = f"Free 3D model from Poly Haven ({cats}). CC0 license - free for commercial use."
+            url = f"https://polyhaven.com/a/{slug}"
+            # Thumbnail: use Poly Haven's CDN pattern
+            img = f"https://dl.polyhaven.org/file/ph-assets/models/jpg/1k/{slug}.jpg"
+            items.append(_mk_item(
+                title=name,
+                desc=desc,
+                url=url,
+                img=img,
+                price="",
+                sub="preset",
+                src="polyhaven",
+                ttl_hours=7 * 24,
+            ))
+            print(f"[polyhaven] {name[:45]}", file=sys.stderr)
+        except Exception:
+            continue
+    return items
+
