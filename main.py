@@ -519,12 +519,23 @@ def main():
     if not args.dry_run:
         _now = int(datetime.now(timezone.utc).timestamp() * 1000)
         # One-time: convert old gotd/winningpc drafts to live (2026-11-03 policy change)
+        # Also fix broken "(Android)"/"(iPhone)" titles from the early 4-section run
         try:
             _data = store.read_existing(db_url, id_token)
             for _k, _v in (_data or {}).items():
-                if isinstance(_v, dict) and _v.get("status") == "draft" and _v.get("src") in ("gotd", "winningpc"):
+                if not isinstance(_v, dict):
+                    continue
+                _t = (_v.get("title") or "").strip()
+                if _v.get("status") == "draft" and _v.get("src") in ("gotd", "winningpc", "gotd-game", "gotd-android", "gotd-iphone"):
                     store.update(db_url, id_token, _k, {"status": "live", "ts": _now})
-                    print(f"[migrate] {_v.get('title','?')[:40]}: draft -> live", file=sys.stderr)
+                    print(f"[migrate] {_t[:40]}: draft -> live", file=sys.stderr)
+                elif _v.get("src") in ("gotd-android", "gotd-iphone") and _t in ("(Android)", "(iPhone)"):
+                    # Re-derive title from URL slug
+                    _slug = (_v.get("url") or "").rstrip("/").split("/")[-1].replace("-", " ").title()
+                    _sec = "Android" if "android" in str(_v.get("src")) else "iPhone"
+                    _newt = f"{_slug} ({_sec})" if _slug else _t
+                    store.update(db_url, id_token, _k, {"title": _newt, "ts": _now})
+                    print(f"[migrate] title fix: {_t} -> {_newt}", file=sys.stderr)
         except Exception as ex:
             print(f"[migrate] failed: {ex}", file=sys.stderr)
         verify_steam_listings(db_url, id_token, set(str(i["srcId"]) for i in all_items), _now)

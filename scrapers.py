@@ -151,11 +151,16 @@ def gotd():
             # Fetch post page for details
             html = _get(post_url)
             meta = _parse_meta(html)
-            title = meta.meta.get("title", "")
-            title = re.sub(r"(?i)^giveaway of the day\s*[—–-]\s*", "", title).strip()
+            title = meta.meta.get("og:title", "") or meta.meta.get("title", "")
+            title = re.sub(r"(?i)^giveaway of the day\s*[—–-]?\s*", "", title).strip()
+            title = re.sub(r"\s*[—–-]\s*giveaway of the day.*$", "", title, flags=re.I).strip()
             # Section label from src_name
             section = {"gotd": "Windows", "gotd-game": "Game",
                        "gotd-android": "Android", "gotd-iphone": "iPhone"}.get(src_name, "")
+            if not title or len(title) < 3 or title.lower() in ("android", "iphone", "game"):
+                # Fallback: derive from URL slug
+                slug = post_url.rstrip("/").split("/")[-1].replace("-", " ").title()
+                title = slug
             if section and section.lower() not in title.lower():
                 title = f"{title} ({section})"
             if not title or len(title) < 3:
@@ -180,63 +185,57 @@ def _classify_wpc(url, title):
     return "daily"
 
 
+def _fresh_hours(txt):
+    """Parse '1 hour ago', '4 days ago', '7 minutes ago' -> hours float. None if unknown."""
+    t = (txt or "").lower().strip()
+    m = re.match(r"(\d+)\s*(minute|hour|day|week)s?\s*ago", t)
+    if not m:
+        return None
+    n, unit = int(m.group(1)), m.group(2)
+    return n / 60 if unit == "minute" else n if unit == "hour" else n * 24 if unit == "day" else n * 168
+
+
 def winningpc():
-    """1-3 latest WinningPC posts: giveaways -> Daily Free Software, coupons/discounts -> Weekly Discounts. Returns list (may be [])."""
-    try:
-        html = _get("https://winningpc.com/")
-    except Exception as ex:
-        print(f"[winningpc] fetch failed: {ex}", file=sys.stderr)
-        return []
-    try:
-        # Find post links that look like giveaways/coupons.
-        links = []
-        for m in re.finditer(r'href="(https://winningpc\.com/[^"]+?)"', html):
-            u = m.group(1).rstrip("/")
-            if "/giveaway/" in u:
-                continue  # category archive page, not an individual post
-            if re.search(r"(giveaway|coupon-code|free-key|free-download|deal)", u, re.I):
-                if u not in links:
-                    links.append(u)
-            if len(links) >= 3:
-                break
-        if not links:
-            print("[winningpc] page structure unrecognized: no giveaway links found", file=sys.stderr)
-            return []
-        items = []
-        for u in links:
+    """Scrape all 3 WinningPC giveaway sections. Returns list of fresh (<36h) items."""
+    sections = [
+        ("https://winningpc.com/giveaway/software-giveaway/", "daily"),
+        ("https://winningpc.com/giveaway/android-ios-apps-giveaway/", "daily"),
+        ("https://winningpc.com/giveaway/game-giveaway-for-pc-and-ios-android/", "games"),
+    ]
+    items = []
+    for page_url, sub in sections:
+        try:
+            html = _get(page_url)
+        except Exception as ex:
+            print(f"[winningpc] section failed {page_url}: {ex}", file=sys.stderr)
+            continue
+        cards = re.findall(r"<article.*?</article>", html, re.S)
+        for card in cards[:12]:  # latest 12 per section
             try:
-                ph = _get(u)
-                p = _parse_meta(ph)
-                if p.meta.get("type", "") != "article":
-                    # Category/section page, not an individual giveaway post — skip.
-                    print(f"[winningpc] skip {u}: not an article page", file=sys.stderr)
+                lm = re.search(r'<h3 class="pbox-name"><a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', card, re.S)
+                if not lm:
                     continue
-                title = p.meta.get("title") or (p.h1s[0] if p.h1s else "")
-                title = re.sub(r"(?i)\s*[-|]\s*winningpc.*$", "", title).strip()
+                url = lm.group(1).strip()
+                title = re.sub(r"<[^>]+>", "", lm.group(2)).strip()
                 if not title or len(title) < 3:
-                    print(f"[winningpc] skip {u}: no title", file=sys.stderr)
                     continue
-                desc = p.meta.get("description", "")
-                img = p.meta.get("image", "") or (p.imgs[0] if p.imgs else "")
-                price = _find_price(ph)
-                # 24h freshness filter (article:published_time meta)
-                pub_raw = p.meta.get("article:published_time", "") or p.meta.get("publish_date", "")
-                if pub_raw:
-                    try:
-                        pub = datetime.fromisoformat(pub_raw.replace("Z", "+00:00"))
-                        age_h = (datetime.now(timezone.utc) - pub).total_seconds() / 3600
-                        if age_h > 36:
-                            print(f"[winningpc] skip {u}: {age_h:.1f}h old (>36h)", file=sys.stderr)
-                            continue
-                    except Exception:
-                        pass  # unparseable date -> include anyway
-                # WinningPC giveaways usually run several days; documented fallback.
-                sub = _classify_wpc(u, title)
-                items.append(_mk_item(title, desc, u, img, price, sub, "winningpc", 72))
-                time.sleep(1)  # be polite between requests
+                # Freshness: pbox-fresh "X hours ago"
+                fm = re.search(r'<span class="pbox-fresh">(.*?)</span>', card)
+                age_h = _fresh_hours(fm.group(1)) if fm else None
+                if age_h is not None and age_h > 36:
+                    continue  # stale
+                # Price
+                was = re.search(r'<span class="pbox-was">([^<]+)</span>', card)
+                price = (was.group(1).strip().lstrip("$") if was else "")
+                # Image
+                im = re.search(r'<img[^>]*src="([^"]+)"', card)
+                img = im.group(1) if im else ""
+                # Skip if already have this URL
+                if any(i["url"] == url for i in items):
+                    continue
+                items.append(_mk_item(title, "", url, img, price, sub, "winningpc", 72))
+                print(f"[winningpc] {title[:45]} ({fm.group(1) if fm else 'no date'})", file=sys.stderr)
             except Exception as ex:
-                print(f"[winningpc] skip {u}: {ex}", file=sys.stderr)
-        return items
-    except Exception as ex:
-        print(f"[winningpc] parse failed: {ex}", file=sys.stderr)
-        return []
+                continue
+        time.sleep(1)
+    return items
