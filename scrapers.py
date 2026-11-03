@@ -233,7 +233,7 @@ def winningpc():
                 # Skip if already have this URL
                 if any(i["url"] == url for i in items):
                     continue
-                items.append(_mk_item(title, "", url, img, price, sub, "winningpc", 72))
+                items.append(_mk_item(title, "", url, img, price, sub, "winningpc", 24))
                 print(f"[winningpc] {title[:45]} ({fm.group(1) if fm else 'no date'})", file=sys.stderr)
             except Exception as ex:
                 continue

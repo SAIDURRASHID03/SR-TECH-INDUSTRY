@@ -529,6 +529,18 @@ def main():
                 if _v.get("status") == "draft" and _v.get("src") in ("gotd", "winningpc", "gotd-game", "gotd-android", "gotd-iphone"):
                     store.update(db_url, id_token, _k, {"status": "live", "ts": _now})
                     print(f"[migrate] {_t[:40]}: draft -> live", file=sys.stderr)
+                # Force-fix: all Daily Free Software items get 24h expiry (was 72h for WinningPC)
+                if _v.get("sub") == "daily" and _v.get("status") == "live":
+                    _exp = _v.get("expiresAt")
+                    _want = _now + 24 * 3600 * 1000
+                    # If expiry is more than 26h out, it's the old 72h value — fix it
+                    if _exp and _exp > _now + 26 * 3600 * 1000:
+                        store.update(db_url, id_token, _k, {"expiresAt": _want, "ts": _now})
+                        print(f"[migrate] expiry fix (24h): {_t[:40]}", file=sys.stderr)
+                # Force-fix: Steam discounts should have NO fake timer
+                if _v.get("src") == "steam" and _v.get("sub") == "discount" and _v.get("expiresAt"):
+                    store.update(db_url, id_token, _k, {"expiresAt": None, "ts": _now})
+                    print(f"[migrate] steam timer removed: {_t[:40]}", file=sys.stderr)
                 elif _v.get("src") in ("gotd-android", "gotd-iphone") and _t in ("(Android)", "(iPhone)"):
                     # Re-derive title from URL slug
                     _slug = (_v.get("url") or "").rstrip("/").split("/")[-1].replace("-", " ").title()

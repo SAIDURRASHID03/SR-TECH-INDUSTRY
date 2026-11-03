@@ -86,7 +86,7 @@ def fetch():
         r.raise_for_status()
         data = r.json()
     except Exception as ex:
-        print(f"[fab] fetch failed: {ex}", file=sys.stderr)
+        print(f"[fab] blocked by Fab (403) - skipping Presets this run", file=sys.stderr) if "403" in str(ex) else print(f"[fab] fetch failed: {ex}", file=sys.stderr)
         return []
 
     try:
