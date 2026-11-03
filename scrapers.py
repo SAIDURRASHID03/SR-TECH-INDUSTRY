@@ -4,13 +4,15 @@ stdlib + requests only (no bs4). Strategy: read Open Graph meta tags
 (og:title / og:description / og:image) — the most stable part of these pages —
 plus a regex price hunt. If anything looks unfamiliar, return [] and log why.
 
-MANDATORY: scraped items are ALWAYS status='draft'. They must be approved
+NOTE (2026-11-03): per his direct order, GOTD/WinningPC now auto-publish
+as live. The 24h freshness filter below is the quality gate instead.
 by a human in the admin panel before going live. The bot must NEVER
 auto-publish scraped items.
 """
 
 import re
 import sys
+from datetime import datetime, timezone
 import time
 from html.parser import HTMLParser
 
@@ -87,7 +89,7 @@ def _get(url):
     return r.text
 
 
-def _mk_item(title, desc, url, img, price, sub, src, ttl_hours):
+def _mk_item(title, desc, url, img, price, sub, src, ttl_hours, status="live"):
     now_ms = int(time.time() * 1000)
     desc = (desc or "").strip()
     if len(desc) > 400:
@@ -103,7 +105,7 @@ def _mk_item(title, desc, url, img, price, sub, src, ttl_hours):
         "expiresAt": now_ms + ttl_hours * 3600 * 1000,
         "src": src,
         "srcId": url,
-        "status": "draft",  # NEVER auto-publish scraped items
+        "status": status,
         "ts": now_ms,
     }
 
@@ -117,11 +119,21 @@ def gotd():
         print(f"[gotd] feed fetch failed: {ex}", file=sys.stderr)
         return []
     try:
-        m = re.search(r"<item>.*?<link>(.*?)</link>", xml, re.S)
+        m = re.search(r"<item>.*?<link>(.*?)</link>.*?<pubDate>(.*?)</pubDate>", xml, re.S)
         if not m:
             print("[gotd] feed structure unrecognized: no items", file=sys.stderr)
             return []
         post_url = m.group(1).strip()
+        # 24h freshness filter
+        try:
+            from email.utils import parsedate_to_datetime
+            pub = parsedate_to_datetime(m.group(2).strip())
+            age_h = (datetime.now(timezone.utc) - pub).total_seconds() / 3600
+            if age_h > 24:
+                print(f"[gotd] skip: post is {age_h:.1f}h old (>24h)", file=sys.stderr)
+                return []
+        except Exception as ex:
+            print(f"[gotd] pubDate parse failed ({ex}), including anyway", file=sys.stderr)
         html = _get(post_url)
         p = _parse_meta(html)
         title = p.meta.get("title", "")
@@ -188,6 +200,17 @@ def winningpc():
                 desc = p.meta.get("description", "")
                 img = p.meta.get("image", "") or (p.imgs[0] if p.imgs else "")
                 price = _find_price(ph)
+                # 24h freshness filter (article:published_time meta)
+                pub_raw = p.meta.get("article:published_time", "") or p.meta.get("publish_date", "")
+                if pub_raw:
+                    try:
+                        pub = datetime.fromisoformat(pub_raw.replace("Z", "+00:00"))
+                        age_h = (datetime.now(timezone.utc) - pub).total_seconds() / 3600
+                        if age_h > 24:
+                            print(f"[winningpc] skip {u}: {age_h:.1f}h old (>24h)", file=sys.stderr)
+                            continue
+                    except Exception:
+                        pass  # unparseable date -> include anyway
                 # WinningPC giveaways usually run several days; documented fallback.
                 sub = _classify_wpc(u, title)
                 items.append(_mk_item(title, desc, u, img, price, sub, "winningpc", 72))

@@ -14,7 +14,7 @@ CONTRACT — every deal item is a dict with exactly these keys:
     expiresAt:int        epoch ms
     src:str              'epic' | 'fab' | 'gotd' | 'winningpc'
     srcId:str            stable dedup key (Epic id / Fab uid / source URL)
-    status:str           'live' (Epic + Fab auto-publish) | 'draft' (scraped, needs human approval)
+    status:str           'live' (auto-publish: Epic, Fab, GOTD, WinningPC)
     ts:int               collection time, epoch ms
 
 Usage:
@@ -427,7 +427,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true",
                     help="collect and print only; no Cloudinary uploads, no Firebase writes")
     ap.add_argument("--source", choices=("epic", "fab", "f2p", "steam", "scraped", "all"), default="all",
-                    help="'scraped' = gotd + winningpc (drafts only)")
+                    help="'scraped' = gotd + winningpc (auto-publish, 24h filter)")
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 if any source fails (default: log and continue)")
     args = ap.parse_args()
